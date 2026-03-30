@@ -7,15 +7,15 @@ echo   FLASH PROXY INTERCEPTOR - INICIANDO
 echo ================================================================
 echo.
 
-:: ── Verifica se o script Python existe ────────────────────────────
+:: Verifica se o script Python existe
 if not exist "flash_interceptor.py" (
     echo [ERRO] flash_interceptor.py nao encontrado.
-    echo        Execute este .bat na mesma pasta do projeto.
+    echo        Este .bat deve estar na mesma pasta que flash_interceptor.py
     pause
     exit /b 1
 )
 
-:: ── Verifica mitmproxy ────────────────────────────────────────────
+:: Verifica mitmproxy
 mitmdump --version >nul 2>&1
 if errorlevel 1 (
     echo [ERRO] mitmproxy nao encontrado. Execute setup.bat primeiro.
@@ -23,86 +23,66 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: ── Configura proxy no sistema ────────────────────────────────────
+:: Configura proxy nas variaveis de ambiente da sessao
 set http_proxy=http://127.0.0.1:8080
 set https_proxy=http://127.0.0.1:8080
 set HTTP_PROXY=http://127.0.0.1:8080
 set HTTPS_PROXY=http://127.0.0.1:8080
 
-:: ── Cria mm.cfg para Flash Player debug ──────────────────────────
-echo HTTPProxy=127.0.0.1:8080>       "%USERPROFILE%\mm.cfg"
-echo TraceOutputFileEnable=1>>        "%USERPROFILE%\mm.cfg"
-echo ErrorReportingEnable=1>>         "%USERPROFILE%\mm.cfg"
-echo MaxWarnings=50>>                 "%USERPROFILE%\mm.cfg"
-echo PolicyFileLog=1>>                "%USERPROFILE%\mm.cfg"
-echo.
+:: Configura proxy no Internet Options do Windows (usado pelo Flash standalone)
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer /t REG_SZ /d "127.0.0.1:8080" /f >nul 2>&1
 
-echo [OK] Proxy configurado em 127.0.0.1:8080
+echo [OK] Proxy ativado: 127.0.0.1:8080
+
+:: Cria mm.cfg para Flash Player debug (captura logs internos do Flash)
+(
+echo HTTPProxy=127.0.0.1:8080
+echo TraceOutputFileEnable=1
+echo ErrorReportingEnable=1
+echo MaxWarnings=50
+echo PolicyFileLog=1
+) > "%USERPROFILE%\mm.cfg"
+
 echo [OK] mm.cfg criado em %USERPROFILE%\mm.cfg
-echo.
 
-:: ── Cria pastas de saida ──────────────────────────────────────────
+:: Cria pastas de saida
 if not exist "captured\swf"    mkdir "captured\swf"
 if not exist "captured\logs"   mkdir "captured\logs"
 if not exist "captured\tokens" mkdir "captured\tokens"
 
-:: ── Verifica se quer abrir o Flash junto ──────────────────────────
-set FLASH_EXE=
-set FLASH_SWF=
-
-if "%~1" neq "" (
-    set FLASH_EXE=%~1
-    echo [*] Flash Player: %FLASH_EXE%
-)
-if "%~2" neq "" (
-    set FLASH_SWF=%~2
-    echo [*] SWF alvo:     %FLASH_SWF%
-)
-
-:: ── Abre Flash Player em janela separada se fornecido ─────────────
-if "%FLASH_EXE%" neq "" (
-    echo.
-    echo [*] Aguardando 3s para o proxy subir antes de abrir o Flash...
-    timeout /t 3 /nobreak >nul
-    if "%FLASH_SWF%" neq "" (
-        start "" "%FLASH_EXE%" "%FLASH_SWF%"
-    ) else (
-        start "" "%FLASH_EXE%"
-    )
-    echo [OK] Flash Player iniciado.
-)
-
-:: ── Inicia o mitmproxy com o addon ────────────────────────────────
+echo [OK] Pastas criadas: captured\swf  captured\logs  captured\tokens
+echo.
+echo ----------------------------------------------------------------
+echo   Certificado TLS (para capturar HTTPS):
+echo   Com o proxy rodando, acesse no navegador: http://mitm.it
+echo   Baixe e instale o certificado Windows.
+echo ----------------------------------------------------------------
 echo.
 echo [*] Iniciando interceptador na porta 8080...
 echo     Pressione Ctrl+C para parar.
 echo ================================================================
 echo.
 
-mitmdump ^
-    --listen-host 0.0.0.0 ^
-    --listen-port 8080 ^
-    --scripts flash_interceptor.py ^
-    --set ssl_insecure=true ^
-    --set connection_strategy=lazy ^
-    --showhost
+:: Inicia o mitmproxy
+:: Nota: use -s (nao --scripts) em versoes recentes do mitmproxy
+mitmdump -s flash_interceptor.py --listen-host 0.0.0.0 --listen-port 8080 --set ssl_insecure=true
 
-:: ── Ao encerrar ────────────────────────────────────────────────────
+:: Ao encerrar: remove proxy do sistema
 echo.
-echo ================================================================
-echo   PROXY ENCERRADO
-echo ================================================================
+echo [*] Desativando proxy do sistema...
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /t REG_DWORD /d 0 /f >nul 2>&1
+set http_proxy=
+set https_proxy=
+set HTTP_PROXY=
+set HTTPS_PROXY=
+echo [OK] Proxy do sistema DESATIVADO.
+echo     Configuracoes aplicadas ao Internet Settings do Windows.
 echo.
 echo  Arquivos capturados:
 echo    SWF:    captured\swf\
 echo    Logs:   captured\logs\
 echo    Tokens: captured\tokens\
 echo.
-
-:: Remove configuracao de proxy do sistema
-set http_proxy=
-set https_proxy=
-set HTTP_PROXY=
-set HTTPS_PROXY=
-
-pause
+echo [OK] Proxy desativado. Pressione qualquer tecla para fechar.
+pause >nul
